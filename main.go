@@ -253,6 +253,7 @@ func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
 	setHeader("Permissions-Policy", "geolocation=(), camera=(), microphone=(), interest-cohort=()")
 
 	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#server
+	// Note this won't work with Istio <https://github.com/istio/istio/issues/13861>, you need an EnvoyFilter
 	removeHeader("Server")
 
 	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#x-powered-by
