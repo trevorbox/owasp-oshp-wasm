@@ -99,47 +99,197 @@ type httpHeaders struct {
 
 // Override types.DefaultHttpContext.
 func (ctx *httpHeaders) OnHttpRequestHeaders(numHeaders int, endOfStream bool) types.Action {
-	err := proxywasm.ReplaceHttpRequestHeader("test", "best")
-	if err != nil {
-		proxywasm.LogCritical("failed to set request header: test")
-	}
+	// err := proxywasm.ReplaceHttpRequestHeader("test", "best")
+	// if err != nil {
+	// 	proxywasm.LogCritical("failed to set request header: test")
+	// }
 
-	hs, err := proxywasm.GetHttpRequestHeaders()
-	if err != nil {
-		proxywasm.LogCriticalf("failed to get request headers: %v", err)
-	}
+	// hs, err := proxywasm.GetHttpRequestHeaders()
+	// if err != nil {
+	// 	proxywasm.LogCriticalf("failed to get request headers: %v", err)
+	// }
 
-	for _, h := range hs {
-		proxywasm.LogInfof("request header --> %s: %s", h[0], h[1])
-	}
+	// for _, h := range hs {
+	// 	proxywasm.LogInfof("request header --> %s: %s", h[0], h[1])
+	// }
 	return types.ActionContinue
 }
 
-// Override types.DefaultHttpContext.
-func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
-	proxywasm.LogInfof("adding header: %s=%s", ctx.headerName, ctx.headerValue)
-
-	// Add a hardcoded header
-	if err := proxywasm.AddHttpResponseHeader("x-proxy-wasm-go-sdk-example", "http_headers"); err != nil {
-		proxywasm.LogCriticalf("failed to set response constant header: %v", err)
+func addHeader(headerName string, headerValue string) {
+	err := proxywasm.AddHttpResponseHeader(headerName, headerValue)
+	if err != nil {
+		proxywasm.LogCriticalf("failed to add header %s with value %s: %v", headerName, headerValue, err)
+	} else {
+		proxywasm.LogInfof("added header %s with value %s", headerName, headerValue)
 	}
+}
 
-	// Add the header passed by arguments
-	if ctx.headerName != "" {
-		if err := proxywasm.AddHttpResponseHeader(ctx.headerName, ctx.headerValue); err != nil {
-			proxywasm.LogCriticalf("failed to set response headers: %v", err)
+// Header always exists with the expected value
+func setHeader(headerName string, expectedValue string) {
+	currentValue, err := proxywasm.GetHttpResponseHeader(headerName)
+	if err != nil {
+		addHeader(headerName, expectedValue)
+	} else if currentValue != expectedValue {
+		err := proxywasm.ReplaceHttpResponseHeader(headerName, expectedValue)
+		if err != nil {
+			proxywasm.LogCriticalf("failed to replace header %s with value %s: %v", headerName, expectedValue, err)
+		} else {
+			proxywasm.LogInfof("replaced header %s with value %s", headerName, expectedValue)
 		}
 	}
+}
 
+// Default the header to a value if missing
+func defaultHeader(headerName string, defaultValue string) {
+	_, err := proxywasm.GetHttpResponseHeader(headerName)
+	if err != nil {
+		addHeader(headerName, defaultValue)
+	}
+}
+
+// Remove the header if it exists
+func removeHeader(headerName string) {
+	_, err := proxywasm.GetHttpResponseHeader(headerName)
+	if err == nil {
+		err := proxywasm.RemoveHttpResponseHeader(headerName)
+		if err != nil {
+			proxywasm.LogCriticalf("failed to remove header %s : %v", headerName, err)
+		} else {
+			proxywasm.LogInfof("removed header %s", headerName)
+		}
+	} else {
+		proxywasm.LogInfof("header %s not found", headerName)
+	}
+}
+
+func printResponseHeaders() {
 	// Get and log the headers
 	hs, err := proxywasm.GetHttpResponseHeaders()
 	if err != nil {
 		proxywasm.LogCriticalf("failed to get response headers: %v", err)
 	}
-
 	for _, h := range hs {
 		proxywasm.LogInfof("response header <-- %s: %s", h[0], h[1])
 	}
+}
+
+const cookieSuffix = "; HTTPOnly; Secure;"
+
+// Override types.DefaultHttpContext.
+func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
+	printResponseHeaders()
+	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#x-frame-options
+	setHeader("X-Frame-Options", "DENY")
+	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#x-xss-protection
+	setHeader("X-XSS-Protection", "1; mode=block")
+	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#x-content-type-options
+	setHeader("X-Content-Type-Options", "nosniff")
+	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#referrer-policy
+	setHeader("Referrer-Policy", "strict-origin-when-cross-origin")
+	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#content-type
+	defaultHeader("Content-Type", "text/plain; charset=utf-8")
+
+	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#set-cookie
+	hs, err := proxywasm.GetHttpResponseHeaders()
+	if err != nil {
+		proxywasm.LogCriticalf("failed to get response headers: %v", err)
+	}
+
+	updatedSetCookieHeaders := make([][2]string, 0)
+
+	for _, h := range hs {
+
+		val := h[1]
+		if !strings.HasSuffix(val, cookieSuffix) {
+			if h[0] == "set-cookie" {
+				var kv [2]string
+				kv[0] = h[0]
+				kv[1] = val + cookieSuffix
+				kv[1] = val + cookieSuffix
+				updatedSetCookieHeaders = append(updatedSetCookieHeaders, kv)
+			} else {
+				updatedSetCookieHeaders = append(updatedSetCookieHeaders, h)
+			}
+		}
+	}
+
+	if len(updatedSetCookieHeaders) > 0 {
+		err := proxywasm.ReplaceHttpResponseHeaders(updatedSetCookieHeaders)
+		if err != nil {
+			proxywasm.LogCriticalf("failed to update set-cookie headers: %v", err)
+		}
+	} else {
+		proxywasm.LogInfo("no updated set-cookie headers")
+	}
+
+	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#strict-transport-security-hsts
+	setHeader("Strict-Transport-Security", "max-age=63072000;includeSubDomains;preload")
+
+	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#expect-ct
+	removeHeader("Expect-CT")
+
+	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#content-security-policy-csp
+	setHeader("Content-Security-Policy", "upgrade-insecure-requests; base-uri 'self'; frame-ancestors 'none'; script-src 'self'; form-action 'self'; frame-src 'none'; font-src 'none'; style-src 'self'; manifest-src 'none'; worker-src 'none'; media-src 'none'; object-src 'none';")
+
+	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#access-control-allow-origin
+	accessControlAllowOrigin, err := proxywasm.GetHttpResponseHeader("Access-Control-Allow-Origin")
+	if err != nil {
+		proxywasm.LogCriticalf("failed to get response header: %s", "Access-Control-Allow-Origin")
+	}
+	if strings.Trim(accessControlAllowOrigin, " ") == "*" {
+		removeHeader("Access-Control-Allow-Origin")
+	}
+
+	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#cross-origin-opener-policy-coop
+	setHeader("Cross-Origin-Opener-Policy", "same-origin")
+
+	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#cross-origin-embedder-policy-coep
+	setHeader("Cross-Origin-Embedder-Policy", "require-corp")
+
+	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#cross-origin-resource-policy-corp
+	setHeader("Cross-Origin-Resource-Policy", "same-site")
+
+	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#permissions-policy-formerly-feature-policy, https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#floc-federated-learning-of-cohorts
+	setHeader("Permissions-Policy", "geolocation=(), camera=(), microphone=(), interest-cohort=()")
+
+	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#server
+	removeHeader("Server")
+
+	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#x-powered-by
+	removeHeader("X-Powered-By")
+
+	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#x-aspnet-version
+	removeHeader("X-AspNet-Version")
+
+	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#x-aspnetmvc-version
+	removeHeader("X-AspNetMvc-Version")
+
+	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#x-dns-prefetch-control
+	setHeader("X-DNS-Prefetch-Control", "off")
+
+	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#public-key-pins-hpkp
+	removeHeader("Public-Key-Pins")
+
+	// others
+	// https://owasp.org/www-community/attacks/Cache_Poisoning
+	removeHeader("ETag")
+
+	// https://owasp.org/www-project-secure-headers/#cache-control
+	contentType, err := proxywasm.GetHttpResponseHeader("Content-Type")
+	if err != nil {
+		proxywasm.LogCriticalf("failed to get response header: %s", "Content-Type")
+	} else {
+		contentType = strings.Trim(contentType, " ")
+
+		if contentType == "application/ecmascript" || contentType == "application/javascript" || contentType == "text/css" || strings.HasPrefix(contentType, "font/") || strings.HasPrefix(contentType, "image/") {
+			setHeader("Cache-Control", "no-cache=\"Set-Cookie,Authorization\"")
+		} else {
+			setHeader("Cache-Control", "no-store, no-cache")
+		}
+
+	}
+
+	printResponseHeaders()
 	return types.ActionContinue
 }
 

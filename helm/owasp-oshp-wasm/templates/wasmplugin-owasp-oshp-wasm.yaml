@@ -7,7 +7,7 @@ spec:
     matchLabels:
       istio: ingressgateway
   url: oci://quay.io/trevorbox/owasp-oshp-wasm:v1
-  imagePullPolicy: IfNotPresent
+  imagePullPolicy: Always
   phase: AUTHN
   pluginConfig:
     header: "Foggle"
