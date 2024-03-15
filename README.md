@@ -1,7 +1,20 @@
 # owasp-oshp-wasm
 https://owasp.org/www-project-secure-headers/
 
+## build push
 
+```sh
+podman build -t quay.io/trevorbox/owasp-oshp-wasm:v1 .
+podman push quay.io/trevorbox/owasp-oshp-wasm:v1
+```
+
+## deploy to istio ingress gateway
+
+```sh
+helm upgrade -i owasp-oshp-wasm helm/owasp-oshp-wasm -n istio-ingress
+```
+
+## Notes
 
 ```sh
 sudo dnf install tinygo

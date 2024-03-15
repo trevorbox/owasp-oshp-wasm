@@ -1,0 +1,14 @@
+apiVersion: extensions.istio.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: owasp-gateway
+spec:
+  selector:
+    matchLabels:
+      istio: ingressgateway
+  url: oci://quay.io/trevorbox/owasp-oshp-wasm:v1
+  imagePullPolicy: IfNotPresent
+  phase: AUTHN
+  pluginConfig:
+    header: "Foggle"
+    value: "FoggleV"

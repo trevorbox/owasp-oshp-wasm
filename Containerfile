@@ -17,8 +17,7 @@ RUN chown -R 1001:0 /tmp/src && \
   export PATH=$PATH:/tmp/tinygo/bin && \
   tinygo build -o main.wasm -scheduler=none -target=wasi ./main.go
 
-
-USER 1001
-# Assemble script sourced from builder image based on user input or image metadata.
-# If this file does not exist in the image, the build will fail.
-RUN /usr/libexec/s2i/assemble
+# Dockerfile for building "compat" variant of Wasm Image Specification.
+# https://github.com/solo-io/wasm/blob/master/spec/spec-compat.md
+FROM scratch
+COPY --from=builder /tmp/src/main.wasm ./plugin.wasm
