@@ -90,9 +90,9 @@ type httpHeaders struct {
 	// Embed the default http context here,
 	// so that we don't need to reimplement all the methods.
 	types.DefaultHttpContext
-	contextID   uint32
-	headerName  string
-	headerValue string
+	contextID uint32
+	// headerName  string
+	// headerValue string
 }
 
 // Override types.DefaultHttpContext.
