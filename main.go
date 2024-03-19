@@ -17,8 +17,6 @@ package main
 import (
 	"strings"
 
-	"github.com/tidwall/gjson"
-
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm"
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm/types"
 )
@@ -45,16 +43,16 @@ type pluginContext struct {
 
 	// headerName and headerValue are the header to be added to response. They are configured via
 	// plugin configuration during OnPluginStart.
-	headerName  string
-	headerValue string
+	// headerName  string
+	// headerValue string
 }
 
 // Override types.DefaultPluginContext.
 func (p *pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
 	return &httpHeaders{
-		contextID:   contextID,
-		headerName:  p.headerName,
-		headerValue: p.headerValue,
+		contextID: contextID,
+		// headerName:  p.headerName,
+		// headerValue: p.headerValue,
 	}
 }
 
@@ -70,20 +68,20 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 		return types.OnPluginStartStatusFailed
 	}
 
-	if !gjson.Valid(string(data)) {
-		proxywasm.LogCritical(`invalid configuration format; expected {"header": "<header name>", "value": "<header value>"}`)
-		return types.OnPluginStartStatusFailed
-	}
+	// if !gjson.Valid(string(data)) {
+	// 	proxywasm.LogCritical(`invalid configuration format; expected {"header": "<header name>", "value": "<header value>"}`)
+	// 	return types.OnPluginStartStatusFailed
+	// }
 
-	p.headerName = strings.TrimSpace(gjson.Get(string(data), "header").Str)
-	p.headerValue = strings.TrimSpace(gjson.Get(string(data), "value").Str)
+	// p.headerName = strings.TrimSpace(gjson.Get(string(data), "header").Str)
+	// p.headerValue = strings.TrimSpace(gjson.Get(string(data), "value").Str)
 
-	if p.headerName == "" || p.headerValue == "" {
-		proxywasm.LogCritical(`invalid configuration format; expected {"header": "<header name>", "value": "<header value>"}`)
-		return types.OnPluginStartStatusFailed
-	}
+	// if p.headerName == "" || p.headerValue == "" {
+	// 	proxywasm.LogCritical(`invalid configuration format; expected {"header": "<header name>", "value": "<header value>"}`)
+	// 	return types.OnPluginStartStatusFailed
+	// }
 
-	proxywasm.LogInfof("header from config: %s = %s", p.headerName, p.headerValue)
+	// proxywasm.LogInfof("header from config: %s = %s", p.headerName, p.headerValue)
 
 	return types.OnPluginStartStatusOK
 }

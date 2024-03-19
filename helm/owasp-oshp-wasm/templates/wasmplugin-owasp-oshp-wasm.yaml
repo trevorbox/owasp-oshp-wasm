@@ -9,6 +9,6 @@ spec:
   url: oci://quay.io/trevorbox/owasp-oshp-wasm:v1
   imagePullPolicy: Always
   phase: AUTHN
-  pluginConfig:
-    header: "Foggle"
-    value: "FoggleV"
+  # pluginConfig:
+  #   header: "Foggle"
+  #   value: "FoggleV"
