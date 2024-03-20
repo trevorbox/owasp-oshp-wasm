@@ -125,7 +125,7 @@ func TestHttpHeaders_OnHttpResponseHeaders_empty(t *testing.T) {
 		require.Contains(t, resHeaders, [2]string{strings.ToLower("Cross-Origin-Resource-Policy"), "same-site"})
 		require.Contains(t, resHeaders, [2]string{strings.ToLower("Permissions-Policy"), "geolocation=(), camera=(), microphone=(), interest-cohort=()"})
 		require.Contains(t, resHeaders, [2]string{strings.ToLower("X-DNS-Prefetch-Control"), "off"})
-		require.Contains(t, resHeaders, [2]string{strings.ToLower("Cache-Control"), "no-store, no-cache"})
+		require.Contains(t, resHeaders, [2]string{strings.ToLower("Cache-Control"), "no-store, max-age=0"})
 		// require.Contains(t, resHeaders, [2]string{"x-proxy-wasm-go-sdk-example", "http_headers"})
 
 		// Check Envoy logs.
@@ -134,6 +134,201 @@ func TestHttpHeaders_OnHttpResponseHeaders_empty(t *testing.T) {
 
 		require.Contains(t, logs, "response header <-- x-frame-options: DENY")
 		// require.Contains(t, logs, "response header <-- x-proxy-wasm-go-sdk-example: http_headers")
+	})
+}
+
+func TestHttpHeaders_OnHttpResponseHeaders_setCookie(t *testing.T) {
+	vmTest(t, func(t *testing.T, vm types.VMContext) {
+		opt := proxytest.NewEmulatorOption().
+			// WithPluginConfiguration([]byte(fmt.Sprintf(`{"header": %q, "value": %q}`, "x-wasm-header", "x-value"))).
+			WithVMContext(vm)
+		host, reset := proxytest.NewHostEmulator(opt)
+		defer reset()
+
+		require.Equal(t, types.OnPluginStartStatusOK, host.StartPlugin())
+
+		// Initialize http context.
+		id := host.InitializeHttpContext()
+
+		// Call OnHttpResponseHeaders.
+		hs := [][2]string{
+			{"set-cookie", "yummy_cookie=choco"},
+			{"set-cookie", "id=a3fWa; Expires=Thu, 21 Oct 2021 07:28:00 GMT; Secure; HTTPOnly"},
+			{"set-cookie", "tasty_cookie=strawberry"},
+			{"set-cookie", "id=a3fWb; Secure; Expires=Thu, 21 Oct 2021 07:28:00 GMT                     ; HttpOnly"},
+			{"set-cookie", "id=a3fWc; ;;;;Secure; ;"},
+		}
+		action := host.CallOnResponseHeaders(id, hs, false)
+		require.Equal(t, types.ActionContinue, action)
+
+		// Call OnHttpStreamDone.
+		host.CompleteHttpContext(id)
+
+		resHeaders := host.GetCurrentResponseHeaders(id)
+
+		require.Contains(t, resHeaders, [2]string{strings.ToLower("Set-Cookie"), "yummy_cookie=choco; Secure; HttpOnly"})
+		require.Contains(t, resHeaders, [2]string{strings.ToLower("Set-Cookie"), "id=a3fWa; Expires=Thu, 21 Oct 2021 07:28:00 GMT; Secure; HTTPOnly"})
+		require.Contains(t, resHeaders, [2]string{strings.ToLower("Set-Cookie"), "tasty_cookie=strawberry; Secure; HttpOnly"})
+		require.Contains(t, resHeaders, [2]string{strings.ToLower("Set-Cookie"), "id=a3fWb; Secure; Expires=Thu, 21 Oct 2021 07:28:00 GMT; HttpOnly"})
+		require.Contains(t, resHeaders, [2]string{strings.ToLower("Set-Cookie"), "id=a3fWc; Secure; HttpOnly"})
+
+		// Check Envoy logs.
+		logs := host.GetInfoLogs()
+		require.Contains(t, logs, fmt.Sprintf("%d finished", id))
+
+		require.Contains(t, logs, "response header <-- x-frame-options: DENY")
+		require.Contains(t, logs, "response header <-- set-cookie: yummy_cookie=choco; Secure; HttpOnly")
+		require.Contains(t, logs, "response header <-- set-cookie: id=a3fWa; Expires=Thu, 21 Oct 2021 07:28:00 GMT; Secure; HTTPOnly")
+		require.Contains(t, logs, "response header <-- set-cookie: tasty_cookie=strawberry; Secure; HttpOnly")
+		require.Contains(t, logs, "response header <-- set-cookie: id=a3fWb; Secure; Expires=Thu, 21 Oct 2021 07:28:00 GMT; HttpOnly")
+		require.Contains(t, logs, "response header <-- set-cookie: id=a3fWc; Secure; HttpOnly")
+
+	})
+}
+
+func TestHttpHeaders_OnHttpResponseHeaders_accessControlWildcard(t *testing.T) {
+	vmTest(t, func(t *testing.T, vm types.VMContext) {
+		opt := proxytest.NewEmulatorOption().
+			// WithPluginConfiguration([]byte(fmt.Sprintf(`{"header": %q, "value": %q}`, "x-wasm-header", "x-value"))).
+			WithVMContext(vm)
+		host, reset := proxytest.NewHostEmulator(opt)
+		defer reset()
+
+		require.Equal(t, types.OnPluginStartStatusOK, host.StartPlugin())
+
+		// Initialize http context.
+		id := host.InitializeHttpContext()
+
+		// Call OnHttpResponseHeaders.
+		hs := [][2]string{
+			{"Access-Control-Allow-Origin", "*"},
+		}
+		action := host.CallOnResponseHeaders(id, hs, false)
+		require.Equal(t, types.ActionContinue, action)
+
+		// Call OnHttpStreamDone.
+		host.CompleteHttpContext(id)
+
+		resHeaders := host.GetCurrentResponseHeaders(id)
+
+		require.NotContains(t, resHeaders, [2]string{strings.ToLower("Access-Control-Allow-Origin"), "*"})
+
+	})
+}
+
+func TestHttpHeaders_OnHttpResponseHeaders_accessControlOK(t *testing.T) {
+	vmTest(t, func(t *testing.T, vm types.VMContext) {
+		opt := proxytest.NewEmulatorOption().
+			// WithPluginConfiguration([]byte(fmt.Sprintf(`{"header": %q, "value": %q}`, "x-wasm-header", "x-value"))).
+			WithVMContext(vm)
+		host, reset := proxytest.NewHostEmulator(opt)
+		defer reset()
+
+		require.Equal(t, types.OnPluginStartStatusOK, host.StartPlugin())
+
+		// Initialize http context.
+		id := host.InitializeHttpContext()
+
+		// Call OnHttpResponseHeaders.
+		hs := [][2]string{
+			{"Access-Control-Allow-Origin", "https://developer.mozilla.org"},
+		}
+		action := host.CallOnResponseHeaders(id, hs, false)
+		require.Equal(t, types.ActionContinue, action)
+
+		// Call OnHttpStreamDone.
+		host.CompleteHttpContext(id)
+
+		resHeaders := host.GetCurrentResponseHeaders(id)
+
+		require.Contains(t, resHeaders, [2]string{strings.ToLower("Access-Control-Allow-Origin"), "https://developer.mozilla.org"})
+	})
+}
+
+func TestHttpHeaders_OnHttpResponseHeaders_accessControlNull(t *testing.T) {
+	vmTest(t, func(t *testing.T, vm types.VMContext) {
+		opt := proxytest.NewEmulatorOption().
+			// WithPluginConfiguration([]byte(fmt.Sprintf(`{"header": %q, "value": %q}`, "x-wasm-header", "x-value"))).
+			WithVMContext(vm)
+		host, reset := proxytest.NewHostEmulator(opt)
+		defer reset()
+
+		require.Equal(t, types.OnPluginStartStatusOK, host.StartPlugin())
+
+		// Initialize http context.
+		id := host.InitializeHttpContext()
+
+		// Call OnHttpResponseHeaders.
+		hs := [][2]string{
+			{"Access-Control-Allow-Origin", "null"},
+		}
+		action := host.CallOnResponseHeaders(id, hs, false)
+		require.Equal(t, types.ActionContinue, action)
+
+		// Call OnHttpStreamDone.
+		host.CompleteHttpContext(id)
+
+		resHeaders := host.GetCurrentResponseHeaders(id)
+
+		require.NotContains(t, resHeaders, [2]string{strings.ToLower("Access-Control-Allow-Origin"), "null"})
+	})
+}
+
+func TestHttpHeaders_OnHttpResponseHeaders_cacheControlContentType_text(t *testing.T) {
+	vmTest(t, func(t *testing.T, vm types.VMContext) {
+		opt := proxytest.NewEmulatorOption().
+			// WithPluginConfiguration([]byte(fmt.Sprintf(`{"header": %q, "value": %q}`, "x-wasm-header", "x-value"))).
+			WithVMContext(vm)
+		host, reset := proxytest.NewHostEmulator(opt)
+		defer reset()
+
+		require.Equal(t, types.OnPluginStartStatusOK, host.StartPlugin())
+
+		// Initialize http context.
+		id := host.InitializeHttpContext()
+
+		// Call OnHttpResponseHeaders.
+		hs := [][2]string{
+			{"content-Type", "text"},
+		}
+		action := host.CallOnResponseHeaders(id, hs, false)
+		require.Equal(t, types.ActionContinue, action)
+
+		// Call OnHttpStreamDone.
+		host.CompleteHttpContext(id)
+
+		resHeaders := host.GetCurrentResponseHeaders(id)
+
+		require.Contains(t, resHeaders, [2]string{strings.ToLower("Cache-Control"), "no-store, max-age=0"})
+	})
+}
+
+func TestHttpHeaders_OnHttpResponseHeaders_cacheControlContentType_text_css(t *testing.T) {
+	vmTest(t, func(t *testing.T, vm types.VMContext) {
+		opt := proxytest.NewEmulatorOption().
+			// WithPluginConfiguration([]byte(fmt.Sprintf(`{"header": %q, "value": %q}`, "x-wasm-header", "x-value"))).
+			WithVMContext(vm)
+		host, reset := proxytest.NewHostEmulator(opt)
+		defer reset()
+
+		require.Equal(t, types.OnPluginStartStatusOK, host.StartPlugin())
+
+		// Initialize http context.
+		id := host.InitializeHttpContext()
+
+		// Call OnHttpResponseHeaders.
+		hs := [][2]string{
+			{"content-Type", "text/css"},
+		}
+		action := host.CallOnResponseHeaders(id, hs, false)
+		require.Equal(t, types.ActionContinue, action)
+
+		// Call OnHttpStreamDone.
+		host.CompleteHttpContext(id)
+
+		resHeaders := host.GetCurrentResponseHeaders(id)
+
+		require.Contains(t, resHeaders, [2]string{strings.ToLower("Cache-Control"), "no-cache=\"Set-Cookie\""})
 	})
 }
 

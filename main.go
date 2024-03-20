@@ -171,10 +171,9 @@ func printResponseHeaders() {
 	}
 }
 
-const cookieSuffix = "; HTTPOnly; Secure;"
-
 // Override types.DefaultHttpContext.
 func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
+
 	printResponseHeaders()
 	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#x-frame-options
 	setHeader("X-Frame-Options", "DENY")
@@ -188,37 +187,7 @@ func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
 	defaultHeader("Content-Type", "text/plain; charset=utf-8")
 
 	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#set-cookie
-	hs, err := proxywasm.GetHttpResponseHeaders()
-	if err != nil {
-		proxywasm.LogCriticalf("failed to get response headers: %v", err)
-	}
-
-	updatedSetCookieHeaders := make([][2]string, 0)
-
-	for _, h := range hs {
-
-		val := h[1]
-		if !strings.HasSuffix(val, cookieSuffix) {
-			if h[0] == "set-cookie" {
-				var kv [2]string
-				kv[0] = h[0]
-				kv[1] = val + cookieSuffix
-				kv[1] = val + cookieSuffix
-				updatedSetCookieHeaders = append(updatedSetCookieHeaders, kv)
-			} else {
-				updatedSetCookieHeaders = append(updatedSetCookieHeaders, h)
-			}
-		}
-	}
-
-	if len(updatedSetCookieHeaders) > 0 {
-		err := proxywasm.ReplaceHttpResponseHeaders(updatedSetCookieHeaders)
-		if err != nil {
-			proxywasm.LogCriticalf("failed to update set-cookie headers: %v", err)
-		}
-	} else {
-		proxywasm.LogInfo("no updated set-cookie headers")
-	}
+	secureSetCookieHeaders()
 
 	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#strict-transport-security-hsts
 	setHeader("Strict-Transport-Security", "max-age=63072000;includeSubDomains;preload")
@@ -231,11 +200,13 @@ func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
 
 	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#access-control-allow-origin
 	accessControlAllowOrigin, err := proxywasm.GetHttpResponseHeader("Access-Control-Allow-Origin")
-	if err != nil {
-		proxywasm.LogCriticalf("failed to get response header: %s", "Access-Control-Allow-Origin")
-	}
-	if strings.Trim(accessControlAllowOrigin, " ") == "*" {
-		removeHeader("Access-Control-Allow-Origin")
+	if err == nil {
+		h := strings.TrimSpace(accessControlAllowOrigin)
+		if h == "*" || h == "null" {
+			removeHeader("Access-Control-Allow-Origin")
+		}
+	} else {
+		proxywasm.LogInfof("header %s not found", "Access-Control-Allow-Origin")
 	}
 
 	// https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#cross-origin-opener-policy-coop
@@ -281,9 +252,9 @@ func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
 		contentType = strings.Trim(contentType, " ")
 
 		if contentType == "application/ecmascript" || contentType == "application/javascript" || contentType == "text/css" || strings.HasPrefix(contentType, "font/") || strings.HasPrefix(contentType, "image/") {
-			setHeader("Cache-Control", "no-cache=\"Set-Cookie,Authorization\"")
+			setHeader("Cache-Control", "no-cache=\"Set-Cookie\"")
 		} else {
-			setHeader("Cache-Control", "no-store, no-cache")
+			setHeader("Cache-Control", "no-store, max-age=0")
 		}
 
 	}
@@ -295,4 +266,69 @@ func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
 // Override types.DefaultHttpContext.
 func (ctx *httpHeaders) OnHttpStreamDone() {
 	proxywasm.LogInfof("%d finished", ctx.contextID)
+}
+
+func secureSetCookieHeaders() {
+	hs, err := proxywasm.GetHttpResponseHeaders()
+	if err != nil {
+		proxywasm.LogCriticalf("failed to get response headers: %v", err)
+	}
+
+	for i, h := range hs {
+		switch h[0] {
+		case "set-cookie":
+			h[1] = secureSetCookieAttributes(h[1])
+			hs[i] = h
+		}
+	}
+
+	err = proxywasm.ReplaceHttpResponseHeaders(hs)
+	if err != nil {
+		proxywasm.LogCriticalf("failed to update all headers: %v", err)
+	} else {
+		proxywasm.LogInfo("updated all headers while securing set-cookies")
+	}
+}
+
+// https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.5
+const cookieSecureAttribute = "Secure"
+
+// https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.6
+const cookieHTTPPnlyAttribute = "HttpOnly"
+
+func secureSetCookieAttributes(setCookieValue string) string {
+
+	var hasHttpOnlyAttribute bool
+	var hasSecureAttribute bool
+
+	sanitizedAttributes := strings.Split(setCookieValue, ";")
+
+	i := 0 // output index
+	for _, a := range sanitizedAttributes {
+
+		trimmed := strings.TrimSpace(a)
+		if len(trimmed) > 0 {
+			l := strings.ToLower(trimmed)
+			if l == strings.ToLower(cookieHTTPPnlyAttribute) {
+				hasHttpOnlyAttribute = true
+			}
+			if l == strings.ToLower(cookieSecureAttribute) {
+				hasSecureAttribute = true
+			}
+			sanitizedAttributes[i] = trimmed
+			i++
+		}
+	}
+
+	sanitizedAttributes = sanitizedAttributes[:i]
+
+	if !hasSecureAttribute {
+		sanitizedAttributes = append(sanitizedAttributes, cookieSecureAttribute)
+	}
+	if !hasHttpOnlyAttribute {
+		sanitizedAttributes = append(sanitizedAttributes, cookieHTTPPnlyAttribute)
+	}
+
+	return strings.Join(sanitizedAttributes, "; ")
+
 }

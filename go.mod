@@ -1,4 +1,4 @@
-module github.com/tetratelabs/proxy-wasm-go-sdk/examples/http_headers
+module github.com/trevorbox/owasp-oshp-wasm
 
 go 1.19
 
